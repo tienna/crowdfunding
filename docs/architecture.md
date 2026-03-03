@@ -1,31 +1,31 @@
-# CrowdFund dApp — Architecture
+# Kiến trúc dApp CrowdFund
 
-## Overview
+## Tổng quan
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                   Cardano Preview Testnet            │
+│              Cardano Preview Testnet                 │
 │                                                     │
-│   Script Address (non-parameterized Plutus V3)      │
+│   Địa chỉ Script (Plutus V3 không có tham số)       │
 │   ┌──────────┐  ┌──────────┐  ┌──────────┐         │
 │   │  UTxO 1  │  │  UTxO 2  │  │  UTxO N  │  ...    │
-│   │ Campaign │  │ Campaign │  │ Campaign │         │
-│   │  Datum   │  │  Datum   │  │  Datum   │         │
+│   │ Chiến    │  │ Chiến    │  │ Chiến    │         │
+│   │ dịch 1   │  │ dịch 2   │  │ dịch N   │         │
 │   └──────────┘  └──────────┘  └──────────┘         │
 └─────────────────────────────────────────────────────┘
           ▲                    ▲
-          │ Blockfrost API     │ Submit Tx
+          │ Blockfrost API     │ Gửi giao dịch
           │                   │
 ┌─────────────────────────────────────────────────────┐
 │              Off-chain / Frontend                   │
 │                                                     │
 │  ┌───────────────────────────────────────────────┐  │
 │  │  Next.js App (app/page.tsx)                   │  │
-│  │  - CampaignList: fetch all UTxOs at address   │  │
-│  │  - CreateCampaign: lock new UTxO with datum   │  │
-│  │  - DonateForm: spend + re-lock with new datum │  │
-│  │  - WithdrawPanel: spend → beneficiary addr    │  │
-│  │  - ReclaimPanel: spend + partial re-lock      │  │
+│  │  - CampaignList: lấy tất cả UTxO tại địa chỉ │  │
+│  │  - CreateCampaign: khóa UTxO mới với datum    │  │
+│  │  - DonateForm: spend + re-lock với datum mới  │  │
+│  │  - WithdrawPanel: spend → địa chỉ beneficiary │  │
+│  │  - ReclaimPanel: spend + re-lock phần còn lại │  │
 │  └───────────────────────────────────────────────┘  │
 │                       │                             │
 │  ┌────────────────┐   │  ┌────────────────────────┐ │
@@ -35,95 +35,99 @@
 └─────────────────────────────────────────────────────┘
 ```
 
-## On-chain Layer
+## Lớp On-chain
 
 **File:** `onchain/validators/crowdfund.ak`
 
-- **Validator:** `p2p_clowdfund` — non-parameterized (no constructor arguments)
-- **All campaigns share one script address** — each campaign is one UTxO
+- **Validator:** `p2p_clowdfund` — không có tham số (non-parameterized)
+- **Tất cả chiến dịch dùng chung một địa chỉ script** — mỗi chiến dịch là một UTxO
 - **Datum (`CampaignDatum`):**
   ```
-  beneficiary : VerificationKeyHash   -- PKH of fund recipient
-  goal        : Int                   -- Lovelace target
-  deadline    : Int                   -- POSIX milliseconds
-  contributions : Pairs<PKH, Int>     -- [(contributor_pkh, amount)]
+  beneficiary   : VerificationKeyHash   -- PKH của người nhận quỹ
+  goal          : Int                   -- Mục tiêu (Lovelace)
+  deadline      : Int                   -- Thời hạn (POSIX milliseconds)
+  contributions : Pairs<PKH, Int>       -- [(pkh_người_đóng_góp, số_tiền)]
   ```
-- **Redeemers:**
-  | Redeemer | Actor | Conditions |
-  |----------|-------|------------|
-  | `Donate` | Anyone | deadline not passed; re-lock with updated datum; lovelace delta == contribution delta |
-  | `Withdraw` | Beneficiary | **total >= goal** + signed by beneficiary (no deadline required) |
-  | `Reclaim` | Contributor | deadline passed + total < goal + signed by contributor + paid back exact amount |
+- **Redeemer:**
 
-- **Compiled with:** Aiken v1.1.2, stdlib v2.1.0, Plutus V3
+  | Redeemer | Người thực hiện | Điều kiện |
+  |----------|-----------------|-----------|
+  | `Donate` | Bất kỳ ai | Chưa hết deadline; re-lock với datum cập nhật; delta lovelace == delta đóng góp |
+  | `Withdraw` | Beneficiary | **Tổng đóng góp >= mục tiêu** + beneficiary ký (không cần deadline) |
+  | `Reclaim` | Người đóng góp | Đã qua deadline + tổng < mục tiêu + người đóng góp ký + trả lại đúng số tiền |
+
+- **Biên dịch với:** Aiken v1.1.2, stdlib v2.1.0, Plutus V3
 - **Script hash:** `74c12c90a16a81859e0398f78c1b93ba6b565cf58964e0d16ff490b1`
-- **Script address (Preview):** `addr_test1wp6vztys594grpv7qwv00rqmjwaxk4ju7kykfcx3dl6fpvgg9cflw`
+- **Địa chỉ script (Preview):** `addr_test1wp6vztys594grpv7qwv00rqmjwaxk4ju7kykfcx3dl6fpvgg9cflw`
 
-## Off-chain Layer
+## Lớp Off-chain
 
 **Files:** `offchain/contract.ts`, `offchain/CrowdFund_Functions.ts`
 
-### Key Design Decisions
+### Các quyết định thiết kế quan trọng
 
-**Double-CBOR wrapping (Conway era requirement):**
+**Double-CBOR wrapping (yêu cầu của Conway era):**
 ```typescript
-// Raw compiledCode from plutus.json = single-CBOR
-// Conway node requires double-CBOR
+// Raw compiledCode từ plutus.json = single-CBOR
+// Node Conway yêu cầu double-CBOR
 const SCRIPT_CBOR = applyParamsToScript(SCRIPT_CBOR_SINGLE, [], "JSON");
 ```
 
-**Datum encoding as Plutus map:**
+**Mã hóa Datum dạng Plutus map:**
 ```typescript
-// Contributions field → encoded as { map: [{ k: { bytes: pkh }, v: { int: amount } }] }
-// Must use Pairs<k,v> on-chain (NOT Dict — Dict is opaque and cannot be cast from Data)
+// Trường Contributions → mã hóa dạng { map: [{ k: { bytes: pkh }, v: { int: amount } }] }
+// Phải dùng Pairs<k,v> on-chain (KHÔNG dùng Dict — Dict là opaque và không thể cast từ Data)
 ```
 
-**Slot ↔ POSIX conversion (Preview Testnet):**
+**Chuyển đổi Slot ↔ POSIX (Preview Testnet):**
 ```
 genesis = 1666656000 Unix seconds
 slot = posixMs/1000 - genesis
 ```
 
-### Functions
-| Function | Description |
-|----------|-------------|
-| `createCampaign(wallet, beneficiary, goal, deadline, initial)` | Lock initial ADA to script with new datum |
-| `donate(wallet, utxo, amount)` | Spend + re-lock UTxO with updated datum (increment contributor entry) |
-| `withdraw(wallet, utxo)` | Spend → send all funds to beneficiary (goal met, no deadline needed) |
-| `reclaim(wallet, utxo)` | Spend + optional re-lock remainder (after deadline, goal not met) |
+### Các hàm chính
 
-## Frontend Layer
+| Hàm | Mô tả |
+|-----|-------|
+| `createCampaign(wallet, beneficiary, goal, deadline, initial)` | Khóa ADA ban đầu vào script với datum mới |
+| `donate(wallet, utxo, amount)` | Spend + re-lock UTxO với datum cập nhật (tăng phần đóng góp) |
+| `withdraw(wallet, utxo)` | Spend → gửi toàn bộ cho beneficiary (đã đạt mục tiêu, không cần deadline) |
+| `reclaim(wallet, utxo)` | Spend + re-lock phần còn lại (sau deadline, chưa đạt mục tiêu) |
+
+## Lớp Frontend
 
 **File:** `frontend/app/`
 
 - **Framework:** Next.js 16 (App Router, Turbopack)
-- **Wallet:** MeshJS `BrowserWallet` — supports Eternl, Nami, Flint, Typhon, etc.
-- **Styling:** Tailwind CSS v4 + Space Grotesk font, dark blockchain aesthetic
+- **Wallet:** MeshJS `BrowserWallet` — hỗ trợ Eternl, Nami, Flint, Typhon, v.v.
+- **Giao diện:** Tailwind CSS v4 + font Space Grotesk, theme tối theo phong cách blockchain
 
-### Component Hierarchy
+### Cấu trúc Component
+
 ```
 app/page.tsx
-├── WalletConnect      (header — connect/disconnect wallet)
-├── CampaignList       (fetch all UTxOs, render campaign cards)
-│   └── [per campaign card]
-│       ├── DonateForm     (active campaigns)
-│       ├── WithdrawPanel  (goal met + is beneficiary)
-│       └── ReclaimPanel   (expired + goal not met + has contribution)
-└── CreateCampaign     (modal/tab — create new campaign)
+├── WalletConnect      (header — kết nối/ngắt kết nối ví)
+├── CampaignList       (lấy tất cả UTxO, render thẻ chiến dịch)
+│   └── [mỗi thẻ chiến dịch]
+│       ├── DonateForm     (chiến dịch đang hoạt động)
+│       ├── WithdrawPanel  (đã đạt mục tiêu + là beneficiary)
+│       └── ReclaimPanel   (hết hạn + chưa đạt mục tiêu + có đóng góp)
+└── CreateCampaign     (modal/tab — tạo chiến dịch mới)
 ```
 
-### State Flow
+### Luồng trạng thái
+
 ```
-useWallet hook
+hook useWallet
   └─ wallet: BrowserWallet | null
   └─ address: string (bech32)
   └─ pkh: string (payment key hash)
        │
        ▼
-crowdfund.ts functions
-  └─ wallet.getChangeAddress()     → sender address
-  └─ wallet.getUtxos()             → available UTxOs for fee
-  └─ wallet.getCollateral()        → collateral UTxO (script tx)
-  └─ wallet.signTx(unsignedTx)     → signed tx (returnFullTx=true)
+Các hàm trong crowdfund.ts
+  └─ wallet.getChangeAddress()     → địa chỉ người gửi
+  └─ wallet.getUtxos()             → UTxO sẵn có để trả phí
+  └─ wallet.getCollateral()        → UTxO thế chấp (script tx)
+  └─ wallet.signTx(unsignedTx)     → tx đã ký (returnFullTx=true)
   └─ wallet.submitTx(signedTx)     → txHash
 ```

@@ -1,56 +1,56 @@
-# CrowdFund on Cardano
+# CrowdFund trên Cardano
 
-A decentralized crowdfunding dApp on Cardano Preview Testnet. Built with Aiken (Plutus V3) and MeshJS.
+Ứng dụng gây quỹ cộng đồng phi tập trung (dApp) trên Cardano Preview Testnet. Xây dựng bằng Aiken (Plutus V3) và MeshJS.
 
-## How it works
+## Cách hoạt động
 
-- Each campaign is a **UTxO** locked at a shared script address
-- Campaign state (beneficiary, goal, deadline, contributions) lives in the **inline datum**
-- Three on-chain actions:
-  - **Donate** — anyone can contribute; datum updates atomically with funds
-  - **Withdraw** — beneficiary claims all funds as soon as goal is met (no deadline needed)
-  - **Reclaim** — contributors reclaim their share after deadline if goal is NOT met
+- Mỗi chiến dịch là một **UTxO** được khóa tại địa chỉ script chung
+- Trạng thái chiến dịch (beneficiary, mục tiêu, thời hạn, đóng góp) lưu trong **inline datum**
+- Ba hành động trên chuỗi:
+  - **Donate** — Bất kỳ ai cũng có thể đóng góp; datum cập nhật nguyên tử cùng với số tiền
+  - **Withdraw** — Beneficiary rút toàn bộ tiền ngay khi đạt mục tiêu (không cần chờ deadline)
+  - **Reclaim** — Người đóng góp lấy lại phần của mình sau deadline nếu mục tiêu KHÔNG đạt
 
-## Quick Start
+## Khởi động nhanh
 
 ```bash
-# 1. Smart contract (already compiled in plutus.json)
+# 1. Smart contract (đã được biên dịch sẵn trong plutus.json)
 cd onchain && aiken build
 
-# 2. Headless tests (Alice/Bob/Charlie)
+# 2. Kiểm thử headless (Alice/Bob/Charlie)
 cd offchain && npm install
-# set up .env with mnemonics + Blockfrost key
+# Cấu hình .env với mnemonics + Blockfrost key
 node --loader ts-node/esm test.ts
 
-# 3. Frontend
+# 3. Giao diện Frontend
 cd frontend && npm install
-# set up .env.local with NEXT_PUBLIC_BLOCKFROST_API_KEY
+# Cấu hình .env.local với NEXT_PUBLIC_BLOCKFROST_API_KEY
 npm run dev
 ```
 
-Full setup instructions: [docs/setup.md](docs/setup.md)
+Hướng dẫn cài đặt đầy đủ: [docs/setup.md](docs/setup.md)
 
-## Architecture
+## Kiến trúc
 
 ```
-onchain/    ← Aiken validator (Plutus V3, no parameters)
+onchain/    ← Aiken validator (Plutus V3, không có tham số)
 offchain/   ← TypeScript headless scripts (MeshJS)
 frontend/   ← Next.js 16 dApp (BrowserWallet, Turbopack)
-docs/       ← Architecture + setup guide
+docs/       ← Kiến trúc + Hướng dẫn cài đặt
 ```
 
-See [docs/architecture.md](docs/architecture.md) for detailed design.
+Xem [docs/architecture.md](docs/architecture.md) để biết chi tiết thiết kế.
 
-## Tech Stack
+## Công nghệ sử dụng
 
-| Layer | Technology |
-|-------|------------|
+| Lớp | Công nghệ |
+|-----|-----------|
 | Smart Contract | Aiken v1.1.2, stdlib v2.1.0, Plutus V3 |
 | Off-chain | TypeScript, MeshJS v1.9.0-beta.101 |
 | Frontend | Next.js 16, Tailwind CSS v4, Space Grotesk |
-| Network | Cardano Preview Testnet via Blockfrost |
+| Mạng lưới | Cardano Preview Testnet qua Blockfrost |
 
-## Script Address (Preview Testnet)
+## Địa chỉ Script (Preview Testnet)
 
 `addr_test1wp6vztys594grpv7qwv00rqmjwaxk4ju7kykfcx3dl6fpvgg9cflw`
 
